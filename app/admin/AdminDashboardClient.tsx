@@ -21,7 +21,7 @@ interface Work {
 }
 
 export default function AdminDashboardClient() {
-  const { data: session, status } = useSession();
+  const { data: session, status } = useSession() || {};
   const [works, setWorks] = useState<Work[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
