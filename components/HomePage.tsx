@@ -6,8 +6,14 @@ import imageCompression from 'browser-image-compression';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Plus, LayoutGrid, Image as ImageIcon, ChevronLeft, Download,
-  Heart, Minus, Maximize2, Lock, Trash2, Pencil, Upload, X, Menu,
+  Heart, Minus, Maximize2, Lock, Trash2, Pencil, Upload, X, Menu, Save,
 } from 'lucide-react';
+import {
+  DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import LoginModal from './LoginModal';
 
 // ─── 类型定义 ────────────────────────────────────────────────────────────────
@@ -34,6 +40,7 @@ interface Work {
   coverBlurDataURL?: string;
   images: WorkImage[];
   createdAt: string;
+  order: number;
 }
 
 interface AllImage {
@@ -136,13 +143,14 @@ type ThumbKey = keyof typeof THUMB_SIZES;
 // ─── TopNavigation ───────────────────────────────────────────────────────────
 
 const TopNavigation = ({
-  onBack, currentView, isLoggedIn, onLoginClick, onLogout,
+  onBack, currentView, isLoggedIn, onLoginClick, onLogout, children,
 }: {
   onBack: () => void;
   currentView: string;
   isLoggedIn: boolean;
   onLoginClick: () => void;
   onLogout: () => void;
+  children?: React.ReactNode;
 }) => (
   <nav className="flex justify-between items-center px-4 md:px-6 py-2 bg-[#0A0A0A] text-white border-b border-zinc-800/60 shrink-0">
     <div className="flex items-center gap-2 md:gap-4">
@@ -154,6 +162,7 @@ const TopNavigation = ({
       <div className="font-bold text-lg md:text-xl tracking-widest uppercase cursor-pointer" onClick={onBack}>Actum</div>
     </div>
     <div className="flex items-center gap-2 md:gap-4">
+      {children}
       {isLoggedIn ? (
         <button onClick={onLogout}
           className="px-3 md:px-5 py-1 text-xs font-medium text-zinc-400 hover:text-white bg-zinc-900/80 hover:bg-red-600 border border-zinc-800 hover:border-red-500 rounded-full transition-all">
@@ -168,6 +177,58 @@ const TopNavigation = ({
     </div>
   </nav>
 );
+
+// ─── SortableProjectCard ─────────────────────────────────────────────────────
+
+function SortableProjectCard({
+  project, isLoggedIn, onSelect, onDelete,
+}: {
+  project: { id: string; name: string; category: string; count: number; cover: string };
+  isLoggedIn: boolean;
+  onSelect: () => void;
+  onDelete: (id: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: project.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 999 : undefined,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`group relative cursor-pointer rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800 hover:border-zinc-600 transition-all active:scale-95 select-none ${
+        isDragging ? 'shadow-2xl ring-2 ring-blue-500' : ''
+      }`}
+      {...attributes}
+      {...listeners}
+      onClick={onSelect}
+    >
+      <div className="relative aspect-[4/3] overflow-hidden">
+        <img src={project.cover} alt={project.name}
+          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+        {isLoggedIn && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(project.id); }}
+            className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-red-600 text-white rounded-md backdrop-blur-sm transition-all md:opacity-0 md:group-hover:opacity-100 flex items-center gap-1 z-10"
+            title="删除项目"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
+      </div>
+      <div className="p-2 md:p-4">
+        <h3 className="text-white font-medium text-xs md:text-sm truncate">{project.name}</h3>
+        <p className="text-zinc-500 text-[10px] md:text-xs mt-0.5 md:mt-1">{project.count} 项</p>
+      </div>
+    </div>
+  );
+}
 
 // ─── HomeView ────────────────────────────────────────────────────────────────
 
@@ -229,25 +290,13 @@ const HomeView = ({
             </div>
           )}
           {projects.map(project => (
-            <div key={project.id}
-              className="group relative cursor-pointer rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800 hover:border-zinc-600 transition-all active:scale-95"
-              onClick={() => onSelectProject(project)}>
-              <div className="relative aspect-[4/3] overflow-hidden">
-                <img src={project.cover} alt={project.name}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                {isLoggedIn && (
-                  <button onClick={(e) => { e.stopPropagation(); onDeleteProject(project.id); }}
-                    className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-red-600 text-white rounded-md backdrop-blur-sm transition-all md:opacity-0 md:group-hover:opacity-100 flex items-center gap-1"
-                    title="删除项目">
-                    <Trash2 size={14} />
-                  </button>
-                )}
-              </div>
-              <div className="p-2 md:p-4">
-                <h3 className="text-white font-medium text-xs md:text-sm truncate">{project.name}</h3>
-                <p className="text-zinc-500 text-[10px] md:text-xs mt-0.5 md:mt-1">{project.count} 项</p>
-              </div>
-            </div>
+            <SortableProjectCard
+              key={project.id}
+              project={project}
+              isLoggedIn={isLoggedIn}
+              onSelect={() => onSelectProject(project)}
+              onDelete={onDeleteProject}
+            />
           ))}
         </div>
       </div>
@@ -815,6 +864,7 @@ export default function HomePage({ initialWorks = [], initialSettings }: HomePag
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showAddProjectModal, setShowAddProjectModal] = useState(false);
   const [showHeroEditModal, setShowHeroEditModal] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{
     title?: string; message: string; confirmLabel?: string; danger?: boolean;
     onConfirm: () => void | Promise<void>;
@@ -858,6 +908,42 @@ export default function HomePage({ initialWorks = [], initialSettings }: HomePag
   const handleLogout = () => {
     localStorage.removeItem('isLoggedIn');
     setIsLoggedIn(false);
+  };
+
+  // ── 拖拽排序 ────────────────────────────────────────────────────────────────
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setWorks((items) => {
+        const oldIndex = items.findIndex((w) => w.id === active.id);
+        const newIndex = items.findIndex((w) => w.id === over.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  };
+
+  const handleSaveOrder = async () => {
+    setIsSaving(true);
+    try {
+      const orderedIds = works.map((w) => w.id);
+      const res = await fetch('/api/works/reorder', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderedIds }),
+      });
+      if (!res.ok) throw new Error('保存失败');
+      await fetchWorks(); // 保存成功后重新拉取确保一致
+    } catch (err) {
+      console.error('Failed to save order:', err);
+      alert('保存排序失败，请重试');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleSelectProject = (project: { id: string; name: string; count: number; cover?: string }) => {
@@ -979,6 +1065,8 @@ export default function HomePage({ initialWorks = [], initialSettings }: HomePag
   };
 
   return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={works.map((w) => w.id)} strategy={rectSortingStrategy}>
     <div className="flex flex-col h-screen w-full bg-[#0A0A0A] font-sans">
       <TopNavigation
         onBack={handleBackToHome}
@@ -986,7 +1074,18 @@ export default function HomePage({ initialWorks = [], initialSettings }: HomePag
         isLoggedIn={isLoggedIn}
         onLoginClick={() => setShowLoginModal(true)}
         onLogout={handleLogout}
-      />
+      >
+        {isLoggedIn && (
+          <button
+            onClick={handleSaveOrder}
+            disabled={isSaving}
+            className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-green-400 hover:text-green-300 bg-green-500/10 hover:bg-green-500/20 border border-green-500/30 hover:border-green-500/50 rounded-full transition-all disabled:opacity-40"
+          >
+            <Save size={12} />
+            {isSaving ? '保存中...' : '保存排序'}
+          </button>
+        )}
+      </TopNavigation>
 
       {currentView === 'home' ? (
         <HomeView
@@ -1056,5 +1155,6 @@ export default function HomePage({ initialWorks = [], initialSettings }: HomePag
         onSave={handleSaveHeroImage}
       />
     </div>
+      </SortableContext></DndContext>
   );
 }

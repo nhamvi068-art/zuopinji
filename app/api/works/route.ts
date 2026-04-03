@@ -14,6 +14,8 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const allWorks = getWorks();
+    const maxOrder = allWorks.length > 0 ? Math.max(...allWorks.map((w) => w.order)) : 0;
     const newWork: Work = {
       id: Date.now().toString(),
       title: body.title,
@@ -22,10 +24,11 @@ export async function POST(request: NextRequest) {
       coverImage: body.coverImage,
       images: body.images || [],
       createdAt: new Date().toISOString(),
+      order: maxOrder + 1,
     };
-    
-    const works = addWork(newWork);
-    return NextResponse.json(works);
+
+    const updated = addWork(newWork);
+    return NextResponse.json(updated);
   } catch (error) {
     return NextResponse.json({ error: 'Failed to add work' }, { status: 500 });
   }
