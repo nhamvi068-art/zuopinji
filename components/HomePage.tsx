@@ -545,6 +545,13 @@ const EagleWorkspace = ({
   const [showMobileDrawer, setShowMobileDrawer] = useState(false);
   const [selectedImgId, setSelectedImgId] = useState<string | null>(null);
 
+  // 挂载时检测是否为移动端，若是则默认显示小缩略图
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 640) {
+      setThumbKey('small');
+    }
+  }, []);
+
   // 滚动容器 ref
   const scrollRef = useRef<HTMLDivElement>(null);
 

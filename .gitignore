@@ -26,8 +26,11 @@ yarn-error.log*
 .env*.local
 .env
 
-# vercel
+# Vercel
 .vercel
+
+# Uploaded work images (commit to GitHub so Vercel sees them)
+!/public/works/
 
 # typescript
 *.tsbuildinfo
