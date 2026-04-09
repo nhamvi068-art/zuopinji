@@ -6,7 +6,7 @@ import imageCompression from 'browser-image-compression';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Plus, LayoutGrid, Image as ImageIcon, ChevronLeft, Download,
-  Heart, Minus, Maximize2, Lock, Trash2, Pencil, Upload, X, Menu, Save,
+  Heart, Minus, Maximize2, Lock, Trash2, Pencil, Upload, X, Menu, Save, FileDown,
 } from 'lucide-react';
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
@@ -872,6 +872,7 @@ export default function HomePage({ initialWorks = [], initialSettings }: HomePag
   const [showAddProjectModal, setShowAddProjectModal] = useState(false);
   const [showHeroEditModal, setShowHeroEditModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{
     title?: string; message: string; confirmLabel?: string; danger?: boolean;
     onConfirm: () => void | Promise<void>;
@@ -950,6 +951,90 @@ export default function HomePage({ initialWorks = [], initialSettings }: HomePag
       alert('保存排序失败，请重试');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // ── 导出 PDF ────────────────────────────────────────────────────────────────
+  const homeViewRef = useRef<HTMLDivElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+
+  const handleExportPDF = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const { jsPDF } = await import('jspdf');
+
+      if (currentView === 'home' && homeViewRef.current) {
+        // home 视图：截图 HomeView 区域
+        const canvas = await html2canvas(homeViewRef.current, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: false,
+          backgroundColor: '#0A0A0A',
+          logging: false,
+        });
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: 'a4' });
+        const pdfW = pdf.internal.pageSize.getWidth();
+        const pdfH = pdf.internal.pageSize.getHeight();
+        const ratio = canvas.height / canvas.width;
+        const imgH = pdfW * ratio;
+        let y = 0;
+        while (y < canvas.height) {
+          pdf.addImage(imgData, 'JPEG', 0, -y / canvas.width * pdfW * ratio, pdfW, imgH);
+          y += canvas.height;
+          if (y < canvas.height) pdf.addPage();
+        }
+        pdf.save(`Actum-作品集-${Date.now()}.pdf`);
+      } else if (currentView === 'workspace' && workspaceRef.current) {
+        // workspace 视图：先滚动到顶部，强制渲染所有虚拟行
+        if (workspaceRef.current) workspaceRef.current.scrollTop = 0;
+        await new Promise(r => setTimeout(r, 800));
+
+        // 等待所有图片加载完成
+        const imgs = workspaceRef.current.querySelectorAll('img');
+        await Promise.all(
+          Array.from(imgs).map(img => {
+            if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+            return new Promise<void>(resolve => {
+              img.onload = () => resolve();
+              img.onerror = () => resolve();
+            });
+          })
+        );
+        await new Promise(r => setTimeout(r, 500));
+
+        const canvas = await html2canvas(workspaceRef.current, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: false,
+          backgroundColor: '#0A0A0A',
+          logging: false,
+          scrollY: 0,
+          windowHeight: workspaceRef.current.scrollHeight,
+          height: workspaceRef.current.scrollHeight,
+        });
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: 'a4' });
+        const pdfW = pdf.internal.pageSize.getWidth();
+        const pdfH = pdf.internal.pageSize.getHeight();
+        const ratio = canvas.height / canvas.width;
+        const imgH = pdfW * ratio;
+        let y = 0;
+        while (y < canvas.height) {
+          pdf.addImage(imgData, 'JPEG', 0, -y / canvas.width * pdfW * ratio, pdfW, imgH);
+          y += canvas.height;
+          if (y < canvas.height) pdf.addPage();
+        }
+        const projName = activeProject?.name ?? '项目';
+        pdf.save(`Actum-${projName}-${Date.now()}.pdf`);
+      }
+    } catch (err) {
+      console.error('Failed to export PDF:', err);
+      alert('导出 PDF 失败，请重试');
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -1092,29 +1177,43 @@ export default function HomePage({ initialWorks = [], initialSettings }: HomePag
             {isSaving ? '保存中...' : '保存排序'}
           </button>
         )}
+        {isLoggedIn && (
+          <button
+            onClick={handleExportPDF}
+            disabled={isExporting}
+            className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 hover:border-blue-500/50 rounded-full transition-all disabled:opacity-40"
+          >
+            <FileDown size={12} />
+            {isExporting ? '生成中...' : '导出 PDF'}
+          </button>
+        )}
       </TopNavigation>
 
       {currentView === 'home' ? (
-        <HomeView
-          works={works}
-          onSelectProject={handleSelectProject}
-          isLoggedIn={isLoggedIn}
-          onAddProject={() => setShowAddProjectModal(true)}
-          settings={settings}
-          onDeleteProject={handleDeleteProject}
-          onEditHero={() => setShowHeroEditModal(true)}
-        />
+        <div ref={homeViewRef}>
+          <HomeView
+            works={works}
+            onSelectProject={handleSelectProject}
+            isLoggedIn={isLoggedIn}
+            onAddProject={() => setShowAddProjectModal(true)}
+            settings={settings}
+            onDeleteProject={handleDeleteProject}
+            onEditHero={() => setShowHeroEditModal(true)}
+          />
+        </div>
       ) : activeProject ? (
-        <EagleWorkspace
-          project={activeProject}
-          works={works}
-          onSwitchProject={handleSwitchWorkspaceProject}
-          onUploadClick={() => uploadInputRef.current?.click()}
-          onSelectImage={setSelectedImage}
-          isLoggedIn={isLoggedIn}
+        <div ref={workspaceRef}>
+          <EagleWorkspace
+            project={activeProject}
+            works={works}
+            onSwitchProject={handleSwitchWorkspaceProject}
+            onUploadClick={() => uploadInputRef.current?.click()}
+            onSelectImage={setSelectedImage}
+            isLoggedIn={isLoggedIn}
           onLoginClick={() => setShowLoginModal(true)}
           onDeleteImage={handleDeleteImage}
-        />
+          />
+        </div>
       ) : null}
 
       <input
